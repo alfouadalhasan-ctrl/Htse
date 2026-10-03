@@ -3,7 +3,9 @@ import re
 import hashlib
 import zipfile
 import io
+import threading
 import tldextract
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.error import BadRequest, Forbidden
@@ -16,8 +18,17 @@ BOT_NAME = "آمن PRO"
 
 CHECK_MODE = {}
 FILE_CHECK_MODE = {}
-
 DANGEROUS_EXTS = ['.exe', '.scr', '.bat', '.cmd', '.vbs', '.js', '.ps1', '.dll', '.msi', '.com', '.pif']
+
+# ---- سيرفر وهمي مشان Render ما يفكر البوت واقع ----
+flask_app = Flask(__name__)
+@flask_app.route('/')
+def home():
+    return "Bot آمن PRO شغال"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host='0.0.0.0', port=port)
 
 # ----------------- دوال المساعدة -----------------
 async def is_member(user_id, context):
@@ -105,7 +116,6 @@ def analyze_file(file_bytes: bytes, file_name: str):
     report = f"📁 **فحص الملفات - آمن PRO**\n─────────────────────\n📄 الاسم: `{file_name}`\n📦 الحجم: {size/1024:.1f} KB\n🔍 التوقيع الحقيقي: {real}\n🧬 MD5: `{md5[:16]}...`\n─────────────────────\n{status}\n{details}\n─────────────────────\nآمن PRO"
     return report
 
-# ----------------- معالجات الأوامر -----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if await is_member(user_id, context):
@@ -157,7 +167,6 @@ async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_member(user_id, context):
         await update.message.reply_text("⚠️ **يجب عليك الاشتراك أولاً للاستفادة من الخدمات.**", reply_markup=get_kb("sub"), parse_mode=ParseMode.MARKDOWN)
         return
-    # ------- فحص الروابط (موجود كما هو) -------
     if CHECK_MODE.get(user_id, False):
         if "http" in text:
             urls = re.findall(r'(https?://[^\s]+)', text)
@@ -170,30 +179,6 @@ async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             CHECK_MODE.pop(user_id, None)
         else:
             await update.message.reply_text("⚠️ الرجاء إرسال رابط صحيح يبدأ بـ http:// أو https://", reply_markup=get_kb("back"))
-        return
-    # باقي الأزرار النصية
-    if text == "🏛️ من نحن":
-        await update.message.reply_text("🏛️ **من نحن**\n\nآمن PRO فريق متخصص...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
-        return
-    if text == "🎯 الرؤية":
-        await update.message.reply_text("🎯 **هدف آمن PRO**\n\nنسعى إلى رفع مستوى الوعي...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
-        return
-    if text == "🎓 دورات أمنPRO":
-        await update.message.reply_text("📚 **دورات آمن PRO**\nاختر المستوى المناسب لك:", reply_markup=get_kb("courses"), parse_mode=ParseMode.MARKDOWN)
-        return
-    if text == "🔍 فحص الروابط":
-        CHECK_MODE[user_id] = True
-        await update.message.reply_text("🔍 **فحص الروابط**\n\nأرسل الرابط الذي تريد فحصه...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
-        return
-    if text == "📁 فحص الملفات":
-        FILE_CHECK_MODE[user_id] = True
-        await update.message.reply_text("📁 **فحص الملفات**\n\nأرسل الملف الآن...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
-        return
-    if text == "📜 الشهادات":
-        await update.message.reply_text("نعمل على التطوير من أجل تصديق الشهادات وفق قاعدة بيانات رسمية", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
-        return
-    if text == "🆘 الدعم الفني":
-        await update.message.reply_text("اطرح سؤالك هنا\nhttps://t.me/+wdWPPmwpg_w5NmU0", reply_markup=get_kb("back"))
         return
     await update.message.reply_text("⚠️ الرجاء استخدام الأزرار للتنقل.", reply_markup=get_kb("main"), parse_mode=ParseMode.MARKDOWN)
 
@@ -223,10 +208,16 @@ async def handle_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await update.message.reply_text(f"❌ خطأ أثناء الفحص: {e}", reply_markup=get_kb("back"))
 
-# ----------------- تشغيل البوت -----------------
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(buttons))
-app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_files))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages))
-app.run_polling(drop_pending_updates=True)
+# ----------------- تشغيل -----------------
+if __name__ == "__main__":
+    if not TOKEN:
+        print("خطأ: TOKEN مو موجود!")
+    else:
+        threading.Thread(target=run_flask, daemon=True).start()
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CallbackQueryHandler(buttons))
+        app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_files))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages))
+        print("البوت شغال...")
+        app.run_polling(drop_pending_updates=True)
