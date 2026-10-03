@@ -4,6 +4,7 @@ import hashlib
 import zipfile
 import io
 import threading
+import asyncio
 import tldextract
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -20,12 +21,11 @@ CHECK_MODE = {}
 FILE_CHECK_MODE = {}
 DANGEROUS_EXTS = ['.exe', '.scr', '.bat', '.cmd', '.vbs', '.js', '.ps1', '.dll', '.msi', '.com', '.pif']
 
-# ---- سيرفر وهمي مشان Render ما يفكر البوت واقع ----
+# ---- سيرفر وهمي لـ Render ----
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home():
     return "Bot آمن PRO شغال"
-
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port)
@@ -141,13 +141,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         CHECK_MODE.pop(user_id, None); FILE_CHECK_MODE.pop(user_id, None)
         await query.edit_message_text("🛡️ **أهلاً بك في بوت أمن PRO**\nاختر الخدمة التي تريدها من الأزرار أدناه.", reply_markup=get_kb("main"), parse_mode=ParseMode.MARKDOWN)
     elif data == 'about':
-        await query.edit_message_text("🏛️ **من نحن**\n\nآمن PRO فريق متخصص في الأمن السيبراني، يضم خبرات في البرمجة، وتحليل التهديدات الرقمية، وتصميم الأنظمة، والتوعية الأمنية.\n\nنعمل على نشر ثقافة الأمن السيبراني، وتطوير أدوات تساعد المستخدمين على استخدام الإنترنت بأمان، مع تقديم دورات تدريبية ومحتوى احترافي يواكب أحدث التهديدات الإلكترونية.", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
+        await query.edit_message_text("🏛️ **من نحن**\n\nآمن PRO فريق متخصص في الأمن السيبراني...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
     elif data == 'goals':
-        await query.edit_message_text("🎯 **هدف آمن PRO**\n\nنسعى إلى رفع مستوى الوعي الرقمي، وحماية المستخدمين من الاحتيال والاختراقات والهجمات الإلكترونية، عبر التدريب، والتوعية، وتوفير أدوات تحقق تساعد على اتخاذ القرار الصحيح قبل التفاعل مع أي رابط أو تطبيق.", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
+        await query.edit_message_text("🎯 **هدف آمن PRO**\n\nنسعى إلى رفع مستوى الوعي الرقمي...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
     elif data == 'courses_menu':
         await query.edit_message_text("📚 **دورات آمن PRO**\nاختر المستوى المناسب لك:", reply_markup=get_kb("courses"), parse_mode=ParseMode.MARKDOWN)
     elif data == 'course_1':
-        await query.edit_message_text("**1️⃣ المستوى الأول – المبتدئ**\n\nيُعد هذا المستوى نقطة البداية لكل من يرغب في تعلم الأمن السيبراني، ويتضمن:\n• أساسيات الأمن السيبراني.\n• حماية الهاتف من الاختراق والتجسس.\n• التعامل الآمن مع التطبيقات والروابط.\n• رفع مستوى الوعي الرقمي وكيفية اكتشاف محاولات الاحتيال والهندسة الاجتماعية.", reply_markup=get_kb("courses"), parse_mode=ParseMode.MARKDOWN)
+        await query.edit_message_text("**1️⃣ المستوى الأول – المبتدئ**\n\nيُعد هذا المستوى نقطة البداية...", reply_markup=get_kb("courses"), parse_mode=ParseMode.MARKDOWN)
     elif data in ['course_2','course_3','course_4']:
         await query.edit_message_text("للاشتراك انتظر الإعلان على قنواتنا الرسمية", reply_markup=get_kb("courses"), parse_mode=ParseMode.MARKDOWN)
     elif data == 'cert':
@@ -156,7 +156,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("اطرح سؤالك هنا\nhttps://t.me/+wdWPPmwpg_w5NmU0", reply_markup=get_kb("back"))
     elif data == 'check':
         CHECK_MODE[user_id] = True; FILE_CHECK_MODE.pop(user_id, None)
-        await query.edit_message_text("🔍 **فحص الروابط**\n\nأرسل الرابط الذي تريد فحصه، وسيقوم النظام بتحليله وإعلامك بالنتيجة.\n\nملاحظة: يفضل إرسال الرابط كرسالة منفصلة.", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
+        await query.edit_message_text("🔍 **فحص الروابط**\n\nأرسل الرابط الذي تريد فحصه...", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
     elif data == 'check_file':
         FILE_CHECK_MODE[user_id] = True; CHECK_MODE.pop(user_id, None)
         await query.edit_message_text("📁 **فحص الملفات المتقدم**\n\nأرسل الملف الآن (APK, PDF, ZIP, EXE, Word...)\nالحد الأقصى 20MB", reply_markup=get_kb("back"), parse_mode=ParseMode.MARKDOWN)
@@ -214,6 +214,7 @@ if __name__ == "__main__":
         print("خطأ: TOKEN مو موجود!")
     else:
         threading.Thread(target=run_flask, daemon=True).start()
+        asyncio.set_event_loop(asyncio.new_event_loop())
         app = Application.builder().token(TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(buttons))
