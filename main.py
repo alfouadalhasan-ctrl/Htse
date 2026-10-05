@@ -3,10 +3,9 @@ import re
 import hashlib
 import zipfile
 import io
-import threading
 import asyncio
 import tldextract
-from flask import Flask
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.error import BadRequest, Forbidden
@@ -15,27 +14,25 @@ from telegram.constants import ParseMode
 TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = "@S1ecurity_Pro"
 CHANNEL_LINK = "https://t.me/S1ecurity_Pro"
-BOT_NAME = "آمن PRO"
+
+if not TOKEN:
+    raise ValueError("حط متغير البيئة TOKEN في Render!")
 
 CHECK_MODE = {}
 FILE_CHECK_MODE = {}
 DANGEROUS_EXTS = ['.exe', '.scr', '.bat', '.cmd', '.vbs', '.js', '.ps1', '.dll', '.msi', '.com', '.pif']
 
-# ---- سيرفر وهمي لـ Render ----
 flask_app = Flask(__name__)
-@flask_app.route('/')
-def home():
-    return "Bot آمن PRO شغال"
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host='0.0.0.0', port=port)
+application = Application.builder().token(TOKEN).build()
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
-# ----------------- دوال المساعدة -----------------
+# -------- دوال الفحص (نفس كودك) --------
 async def is_member(user_id, context):
     try:
         member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         return member.status in ["member", "administrator", "creator", "owner"]
-    except (BadRequest, Forbidden):
+    except (BadRequest, Forbidden, Exception):
         return False
 
 def get_kb(type="main"):
@@ -74,23 +71,18 @@ def analyze_link(url):
     if "c.html" in url_lower: threats.append("صفحة مزورة `c.html`")
     if "verify=" in url_lower: threats.append("يحتوي `verify`")
     if domain == "faceboook.com": threats.append("انتحال فيسبوك")
-    intro = "🔍 **فحص الرابط**\nيقوم نظام آمن PRO بتحليل الرابط باستخدام عدة طبقات من الفحص للكشف عن المؤشرات الأمنية، بهدف مساعدتك في تقييم الرابط قبل فتحه."
+    intro = "🔍 **فحص الرابط**\nيقوم نظام آمن PRO بتحليل الرابط باستخدام عدة طبقات من الفحص للكشف عن المؤشرات الأمنية."
     if threats:
         result = "❌ **غير آمن**"
-        description = f"تم رصد مؤشرات: {', '.join(threats)}\nننصح بعدم فتح الرابط أو إدخال أي معلومات شخصية داخله حفاظًا على أمنك الرقمي."
+        description = f"تم رصد مؤشرات: {', '.join(threats)}\nننصح بعدم فتح الرابط."
     else:
         result = "✅ **آمن**"
-        description = "لم يتم رصد أي مؤشرات خطورة معروفة أثناء الفحص.\nملاحظة: يبقى الالتزام بالحذر وعدم مشاركة بياناتك الشخصية أو كلمات المرور في أي موقع غير موثوق."
-    footer = "نعمل دائمًا من أجل تعزيز أمنكم الرقمي وتوفير بيئة أكثر أمانًا للجميع.\n\nآمن PRO\nمعًا نحو فضاء رقمي أكثر أمانًا."
+        description = "لم يتم رصد أي مؤشرات خطورة معروفة أثناء الفحص."
+    footer = "آمن PRO\nمعًا نحو فضاء رقمي أكثر أمانًا."
     return f"{intro}\n─────────────────────\nنتيجة التحليل: {result}\n{description}\n\n{footer}"
 
 def analyze_file(file_bytes: bytes, file_name: str):
-    threats = []
-    warnings = []
-    size = len(file_bytes)
-    ext = os.path.splitext(file_name)[1].lower()
-    header = file_bytes[:4]
-    md5 = hashlib.md5(file_bytes).hexdigest()
+    threats = []; warnings = []; size = len(file_bytes); ext = os.path.splitext(file_name)[1].lower(); header = file_bytes[:4]; md5 = hashlib.md5(file_bytes).hexdigest()
     if ext in DANGEROUS_EXTS: threats.append(f"امتداد تنفيذي خطر `{ext}`")
     if re.search(r'\.(jpg|png|pdf|docx)\.(exe|bat|js|scr)$', file_name, re.I): threats.append(f"خدعة الامتداد المزدوج `{file_name}`")
     real = "غير معروف"
@@ -102,8 +94,7 @@ def analyze_file(file_bytes: bytes, file_name: str):
         try:
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
                 for inner in z.namelist():
-                    if os.path.splitext(inner)[1].lower() in DANGEROUS_EXTS:
-                        threats.append(f"داخل المضغوط يوجد ملف خطر: `{inner}`")
+                    if os.path.splitext(inner)[1].lower() in DANGEROUS_EXTS: threats.append(f"داخل المضغوط يوجد ملف خطر: `{inner}`")
         except: warnings.append("ملف مضغوط تالف أو محمي بكلمة سر")
     try:
         txt = file_bytes[:4000].decode('utf-8', errors='ignore').lower()
@@ -113,8 +104,7 @@ def analyze_file(file_bytes: bytes, file_name: str):
     if threats: status = "❌ **ملف خطير - لا تفتحه**"; details = "\n".join([f"• {t}" for t in threats])
     elif warnings: status = "⚠️ **ملف مشبوه**"; details = "\n".join([f"• {w}" for w in warnings])
     else: status = "✅ **الملف نظيف ظاهرياً**"; details = "لم نرصد مؤشرات خطورة في بنية الملف."
-    report = f"📁 **فحص الملفات - آمن PRO**\n─────────────────────\n📄 الاسم: `{file_name}`\n📦 الحجم: {size/1024:.1f} KB\n🔍 التوقيع الحقيقي: {real}\n🧬 MD5: `{md5[:16]}...`\n─────────────────────\n{status}\n{details}\n─────────────────────\nآمن PRO"
-    return report
+    return f"📁 **فحص الملفات - آمن PRO**\n─────────────────────\n📄 الاسم: `{file_name}`\n📦 الحجم: {size/1024:.1f} KB\n🔍 التوقيع الحقيقي: {real}\n🧬 MD5: `{md5[:16]}...`\n─────────────────────\n{status}\n{details}\n─────────────────────\nآمن PRO"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -163,7 +153,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text
+    text = update.message.text or ""
     if not await is_member(user_id, context):
         await update.message.reply_text("⚠️ **يجب عليك الاشتراك أولاً للاستفادة من الخدمات.**", reply_markup=get_kb("sub"), parse_mode=ParseMode.MARKDOWN)
         return
@@ -208,17 +198,34 @@ async def handle_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await update.message.reply_text(f"❌ خطأ أثناء الفحص: {e}", reply_markup=get_kb("back"))
 
-# ----------------- تشغيل -----------------
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(buttons))
+application.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_files))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages))
+
+# -------- Flask --------
+@flask_app.route('/')
+def home():
+    return "Bot آمن PRO شغال ✅"
+
+@flask_app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    try:
+        data = request.get_json(force=True)
+        update = Update.de_json(data, application.bot)
+        loop.run_until_complete(application.process_update(update))
+    except Exception as e:
+        print(f"Webhook error: {e}")
+    return "ok", 200
+
 if __name__ == "__main__":
-    if not TOKEN:
-        print("خطأ: TOKEN مو موجود!")
-    else:
-        threading.Thread(target=run_flask, daemon=True).start()
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        app = Application.builder().token(TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(buttons))
-        app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_files))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages))
-        print("البوت شغال...")
-        app.run_polling(drop_pending_updates=True)
+    async def setup():
+        await application.initialize()
+        await application.start()
+        webhook_url = f"https://htse.onrender.com/{TOKEN}"
+        await application.bot.set_webhook(webhook_url)
+        print(f"✅ Webhook set to {webhook_url}")
+
+    loop.run_until_complete(setup())
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host='0.0.0.0', port=port)
